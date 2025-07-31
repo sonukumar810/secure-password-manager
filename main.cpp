@@ -1,221 +1,152 @@
 #include <iostream>
 #include <mysql.h>
 #include <mysqld_error.h>
-#include <cstdlib> // system()
+#include <cstdlib>
+#include <cstring>
+#include "bcrypt.h"   
+
 using namespace std;
 
 const char *HOST = "localhost";
 const char *USER = "root";
-const char *PW = "Sakshi962020";
-const char *DB = "mydb";
+const char *PW   = "Sakshi962020";
+const char *DB   = "mydb";
+#define BCRYPT_HASHSIZE 128
 
-class Login
-{
+class Login {
 private:
 	string userId, userPw;
-
 public:
-	Login() : userId(""), userPw("") {};
-
-	void setId(string id)
-	{
-		userId = id;
-	}
-	void setPw(string pw)
-	{
-		userPw = pw;
-	}
-
-	string getId() const
-	{
-		return userId;
-	}
-
-	string getPw() const
-	{
-		return userId;
-	}
+	Login() : userId(""), userPw("") {}
+	void setId(string id) { userId = id; }
+	void setPw(string pw) { userPw = pw; }
+	string getId() const { return userId; }
+	string getPw() const { return userPw; }
 };
-char encryptCh(char ch, int shift)
-{
-	if (isalpha(ch))
-	{
-		char base = isupper(ch) ? 'A' : 'a';
-		char encrypted_ch = (ch - base + shift + 26) % 26 + base;
-		return encrypted_ch;
-	}
-	if (isdigit(ch))
-	{
-		char encrypted_ch = (ch - '0' + shift + 10) % 10 + '0';
-		return encrypted_ch;
-	}
 
-	return ch;
-}
-string encrypt(const string &password, int shift)
-{
-	string encrypted = "";
-	for (int i = 0; i < password.length(); i++)
-	{
-		char ch = password[i];
-		char encryptedChar = encryptCh(ch, shift);
-		encrypted += encryptedChar;
+// Bcrypt hash helper
+string bcrypt_hash(const string& password) {
+	char salt[BCRYPT_HASHSIZE];
+	char hash[BCRYPT_HASHSIZE];
+	if (bcrypt_gensalt(12, salt) != 0) {
+		throw runtime_error("bcrypt_gensalt error");
 	}
-	return encrypted;
+	if (bcrypt_hashpw(password.c_str(), salt, hash) != 0) {
+		throw runtime_error("bcrypt_hashpw error");
+	}
+	return string(hash);
 }
 
-char decryptCh(char ch, int shift)
-{
-	if (isalpha(ch))
-	{
-		char base = isupper(ch) ? 'A' : 'a';
-		char decrypted_ch = (ch - base - shift + 26) % 26 + base;
-		return decrypted_ch;
-	}
-	if (isdigit(ch))
-	{
-		char decrypted_ch = (ch - '0' - shift + 10) % 10 + '0';
-		return decrypted_ch;
-	}
-	else
-	{
-		return ch;
-	}
+bool bcrypt_verify(const string& password, const string& hash) {
+	char hash_out[BCRYPT_HASHSIZE];
+	return bcrypt_hashpw(password.c_str(), hash.c_str(), hash_out) == 0 && strcmp(hash, hash_out) == 0;
 }
 
-string decrypt(const string &encrypted, int shift)
-{
-	string decrypted = "";
-	for (int i = 0; i < encrypted.length(); i++)
-	{
-		char ch = encrypted[i];
-		char decryptedChar = decryptCh(ch, shift);
-		decrypted += decryptedChar;
-	}
-	return decrypted;
-}
-
-string DBpw(MYSQL *conn, const string &id)
-{
-	string encryptedPW;
-
+// Fetch hashed password from DB
+string DBpw(MYSQL *conn, const string &id) {
+	string hashedPW;
 	string get = "select pw from password where Id='" + id + "' ";
-	if (mysql_query(conn, get.c_str()))
-	{
+	if (mysql_query(conn, get.c_str())) {
 		cout << "Error: " << mysql_error(conn) << endl;
-	}
-	else
-	{
-		MYSQL_RES *res;
-		res = mysql_store_result(conn);
-		if (res)
-		{
+	} else {
+		MYSQL_RES *res = mysql_store_result(conn);
+		if (res) {
 			MYSQL_ROW row = mysql_fetch_row(res);
-			if (row)
-			{
-				encryptedPW = row[0];
-			}
+			if (row) { hashedPW = row[0]; }
+			mysql_free_result(res);
 		}
 	}
-	return encryptedPW;
+	return hashedPW;
 }
 
-int main()
-{
+
+int main() {
 	Login loginObj;
+	MYSQL *conn = mysql_init(NULL);
 
-	MYSQL *conn;
-	conn = mysql_init(NULL);
-
-	if (!mysql_real_connect(conn, HOST, USER, PW, DB, 3306, NULL, 0))
-	{
+	if (!mysql_real_connect(conn, HOST, USER, PW, DB, 3306, NULL, 0)) {
 		cout << "Error: " << mysql_error(conn) << endl;
-	}
-	else
-	{
+		return 1;
+	} else {
 		cout << "Logged In Db" << endl;
 	}
+#ifdef _WIN32
 	Sleep(3000);
-	int shift = 3;
-	bool exit = 0;
-	while (!exit)
-	{
-		system("cls");
+#else
+	usleep(3000000);
+#endif
+
+	bool exit = false;
+	while (!exit) {
+		system("cls"); s
 		cout << "1. Signup: " << endl;
 		cout << "2. Login: " << endl;
 		cout << "0. Exit" << endl;
 		cout << "Enter your choice : ";
-		int val;
-		cin >> val;
-		if (val == 1)
-		{
+		int val; cin >> val;
+
+		if (val == 1) {  // Signup
 			system("cls");
 			string id, pw;
-			cout << "Enter ID for signup: ";
-			cin >> id;
+			cout << "Enter ID for signup: "; cin >> id;
 			loginObj.setId(id);
-
-			cout << "Enter your password: ";
-			cin >> pw;
+			cout << "Enter your password: "; cin >> pw;
 			loginObj.setPw(pw);
 
-			string encryptedPW = encrypt(loginObj.getPw(), shift);
-
-			string Sup = "insert into password(Id,PW) values ('" + loginObj.getId() + "','" + encryptedPW + "')";
-			if (mysql_query(conn, Sup.c_str()))
-			{
-				cout << "Error: " << mysql_error(conn) << endl;
+			string hashedPW;
+			try {
+				hashedPW = bcrypt_hash(loginObj.getPw());
+			} catch (const std::exception &e) {
+				cout << "Error: " << e.what() << endl;
+				continue;
 			}
-			else
-			{
+
+			string Sup = "insert into password(Id,PW) values ('" + loginObj.getId() + "','" + hashedPW + "')";
+			if (mysql_query(conn, Sup.c_str())) {
+				cout << "Error: " << mysql_error(conn) << endl;
+			} else {
 				cout << "Signup successfully" << endl;
 			}
+#ifdef _WIN32
 			Sleep(3000);
-		}
-		else if (val == 2)
-		{
+#else
+			usleep(3000000);
+#endif
+
+		} else if (val == 2) {  // Login
 			system("cls");
-
 			string id, pw;
-			cout << "Enter ID for signup: ";
-			cin >> id;
+			cout << "Enter ID for login: "; cin >> id;
+			cout << "Enter your password: "; cin >> pw;
 
-			cout << "Enter your password: ";
-			cin >> pw;
-
-			string getDB = DBpw(conn, id);
-			if (!getDB.empty())
-			{
-				string decryptedPW = decrypt(getDB, shift);
-				if (decryptedPW == pw)
-				{
-					cout << endl;
-					cout << "Welcome" << endl;
-				}
-				else
-				{
+			string storedHashedPW = DBpw(conn, id);
+			if (!storedHashedPW.empty()) {
+				if (bcrypt_verify(pw, storedHashedPW)) {
+					cout << endl << "Welcome" << endl;
+				} else {
 					cout << "Incorrect password \n Try again\n";
 				}
+			} else {
+				cout << "User Id does not exist \n Try Again";
 			}
-			else
-			{
-				cout << "User Id doesnt exist \n Try Again";
-			}
+#ifdef _WIN32
 			Sleep(5000);
-		}
-		else if (val == 0)
-		{
+#else
+			usleep(5000000);
+#endif
+
+		} else if (val == 0) {
 			exit = true;
 			cout << "Thank you" << endl;
-		}
-
-		else
-		{
+		} else {
 			cout << "invalid input" << endl;
+#ifdef _WIN32
 			Sleep(3000);
+#else
+			usleep(3000000);
+#endif
 		}
 	}
 	mysql_close(conn);
-
 	return 0;
 }
